@@ -1,0 +1,268 @@
+---
+title: "Semana 2 - Tidyverse"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Instalando o tidyverse
+
+```{r}
+install.packages("tidyverse")
+library(tidyverse)
+```
+
+## Tibble
+
+É um pacote que agrega uma nova forma ao clássico data frame.É criada uma tabela com 3 colunas e 7 linhas. Todas as colunas tem o mesmo número de linhas.
+
+```{r}
+menu <- tibble(
+  index = 1:7,
+  item = c("bagel", "sandwich", "croissant", "loaf", "muffin", "latte", "tea"),
+  price = c(4, 4.5, 3, 4, 3.5, 5, 2.5)
+  )
+```
+
+
+# subsetting
+```{r}
+menu[,1]
+menu$index
+menu[menu$price>3, ]
+```
+
+## Filter
+
+permite que você escolha casos baseado nos valores agregados a ele.
+
+```{r}
+menu %>% 
+  filter(price > 1)
+
+menu %>% 
+  filter(item == "bagel")
+
+menu %>% 
+  filter(price > mean(price))
+
+menu %>% 
+  filter(price == max(price))
+```
+
+## Arrange
+
+permite a mudança de ordem das linhas, sendo ascendente por default.
+
+```{r}
+menu %>% 
+  arrange(price)
+
+menu %>% 
+  arrange(desc(price))
+
+# menu %>% 
+ # arrange(desc(price), cost) definindo empates via uma outra coluna.
+
+menu %>% 
+  arrange(item) # ordem alfabética
+```
+## Select
+
+permite escolher variáveis baseado pelo seu nome.Pode usar aspas ou não.
+
+```{r}
+menu %>% 
+  select(item, price)
+
+menu %>% 
+  select(!index)
+
+menu %>% 
+  select(starts_with("i")) # ends_with() e contains()
+```
+
+## Mutate
+
+permite adicionar novas variáveis a partir de variáveis existentes.
+
+```{r}
+menu %>% 
+  mutate(diff = price - 1)
+
+menu2 <- menu %>%
+  mutate(new = case_when(price >= 3 ~ "G", 
+                         price < 3 ~ "B"))
+```
+
+
+## Summarize
+
+Permite reduzir vários valores em uma sumário simples.
+
+```{r}
+menu %>% 
+  summarize(mean(price), median(price), sd(price))
+```
+
+## Group By
+
+Permite realizar operações por grupos de variáveis.
+
+```{r}
+menu2 %>% 
+  group_by(new) %>% 
+  summarize(mean(price))
+
+```
+
+## Joins
+
+Permite trabalhar com mais de 2 tibbles, combinando variáveis. Número de linhas deve ser igual.
+```{r}
+rating <- tibble(id = c(1,3,5,7,9,11), 
+                 rating = c(2.5, 4.7, 8.6, 9.1, 3, 2))
+
+menu3 <- left_join(menu, rating, by = c("index" = "id")) # Inclui todas as colunas de menu
+View(menu3)
+
+menu4 <- right_join(menu, rating, by = c("index" = "id")) # Inlcui todas as linhas de rating
+View(menu4)
+
+menu5 <- full_join(menu, rating, by = c("index" = "id")) # Inlcui todas as linhas e colunas de rating e menu
+View(menu5)
+dim(menu5)
+
+menu6 <- inner_join(menu, rating, by = c("index" = "id")) # Inlcui todas as linhas em comum entre menu e rating
+View(menu6)
+```
+
+# Filtering joins
+
+```{r}
+exclude <- tibble(id = c(2 ,7),
+                  reasons = c("costly", "low demand"))
+
+menu %>% 
+  semi_join(exclude, by = c("index" = "id")) # filtra a base pelos valores que combinam na nova tabela.
+
+menu %>% 
+  anti_join(exclude, by = c("index" = "id")) #Exclui os casos que combinam da base
+```
+
+## String e Tidyverse
+
+Usando expressões regulares para detectar e extrair padrões em dados com texto. 
+
+# Detection
+str_detect()
+
+```{r}
+string <- "The quick brown fox jumps over the lazy dog"
+str_detect(string, "dog") #btrue
+str_detect(string, "DoG") # false
+str_detect(string, "do") # true
+```
+meta-characters
+Díditos: "\\d"
+não-dígitos: "\\D"
+palavras(dígitos e letras): "\\w"
+caracteres sem palavra: "\\W"
+espaços em branco(space, tabs, new lines): "\\s"
+espaços não brancos: "\\S"
+
+
+```{r}
+str_detect("I like apples", "\\d") # false
+str_detect("I ate 2 apples", "\\d") # True
+
+str_detect("I like apples", "\\D") # true
+str_detect("I ate 2 apples", "\\D") # true
+
+str_detect("    ", "\\w") # false
+str_detect("1", "\\w") # true
+str_detect("I", "\\w") # true
+str_detect("
+           ", "\\w") # false
+
+str_detect("    ", "\\W") # true
+str_detect("1", "\\W") # false
+str_detect("I", "\\W") # false
+str_detect("
+           ", "\\W") # true
+```
+# Pontuação
+
+Para encontrar, é preciso usar '\\' na frente do que se quer achar. "\\?" ou "\\." ou "\\[" etc.
+
+# Casos especiais: classes especiais
+[:digits:] dígitos, 
+[:alpha:] letras, 
+[:lower:] lowercase letters, 
+[:upper:] uppercase letters, 
+[:alnum:] letter and numbers, 
+[:ponct:] punctuation, 
+[:graph:] letters, digits pontucation, 
+[:space:] space character, 
+[:black:] space and tabs, 
+'.' any character except a new line.
+
+
+# Extração
+
+str_extract() para primeiro padrão encontrado em cada string, como um vetor
+
+str_extract_all() para retornar todo padrão que combina como uma lista.
+
+```{r}
+str_extract(string, "[:digit:]")
+str_extract_all(string, "[:alpha:]")
+```
+
+# Extraindo com quantifiers
+
+Especifica o padrão buscado.
+"padrão?" - retorna zero ou um elemento do padrão
+"padrão*" - retorna zero ou mais elementos do padrão
+"padrão+" - retorna um ou um elemento do padrão
+"padrão{n}" - retorna exatamente n do padrão
+"padrão{n, }" - retorna n ou mais do padrão
+"padrão{n, m}" - retorna de n até m elementos do padrão
+
+```{r}
+str_extract(string, "\\w?")
+str_extract(string, "\\w*")
+str_extract(string, "\\w+")
+str_extract(string, "\\w{4}")
+str_extract(string, "\\w{4,}")
+str_extract(string, "\\w{5,7}")
+```
+
+# Extração com alternates
+
+Extrai variações de algum padrão
+
+"|" - ou, retorna ou um ou outro elemento informado.
+"[]" - um de, retorna um dos characteres em um padrão informado.
+"[^]" - qualquer coisa, exceto, retorna qualquer coisa menos o padrão.
+"[-]" - range, retorna todos os elementos que seguem o padrão nesse range especificado.
+
+```{r}
+str_extract(string, "The|and")
+str_extract(string, "[^[:digit:]]")
+```
+
+
+# Extração  com look arounds
+
+Ajudam a encontrar palavras precedidas ou não ou seguidas ou não de certos padrões.
+
+"a(?=c)" - seguida de, a seguido de c
+"a(?!c)" - não seguida de, a não seguido de c
+"(?<=b)a" - precedido de, a precedido de a.
+"(?<!b)a" - não precedido, a não precedido de b.
+
+
+
