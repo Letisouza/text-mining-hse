@@ -1,0 +1,366 @@
+---
+title: "Semana 3 - Gutenberg project e TF-IDF"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Gutenberg Project
+
+Objetivos: aprender pre-processamento de documentos e como calcular tf-idf.
+
+```{r}
+install.packages("tidytext")
+install.packages("SnowballC")
+install.packages("udpipe")
+install.packages("gutenbergr")
+install.packages("rsample")
+install.packages("glmnet")
+install.packages("yardstick")
+
+
+library(tidyverse)
+library(tidytext)
+library(SnowballC)
+library(udpipe)
+library(gutenbergr)
+library(rsample)
+library(glmnet)
+library(yardstick)
+```
+```{r}
+dickends_books_id <- gutenberg_metadata %>% 
+  filter(
+    title %in% c("A Tale of Two Cities", "Martin Chuzzlewit", "Barnaby Rudge: A Tale of the Riots of 'Eighty", "Nicholas Nickleby", "The Pickwick Papers", "Little Dorrit", "Oliver Twist", "Bleak House", "David Copperfield", "Great Expectations"),
+    language == "en",
+    has_text == T
+  ) %>% 
+  pull(gutenberg_id) # Extraindo os valores do objeto velho para o novo
+dickends_books_id
+
+# Download the books
+dickens_books <- gutenberg_download(dickends_books_id, meta_fields = "title", mirror = "http://mirror.csclub.uwaterloo.ca/gutenberg/")
+```
+
+
+# Limpando o resultado de strings vazias
+
+```{r}
+dickens_books <- dickens_books %>% 
+  filter(text != "")
+```
+
+# Linhas por livro. Aranjo em ordem decresente.
+
+```{r}
+dickens_books %>% 
+  group_by(title) %>% 
+  summarize(number_lines = n()) %>% 
+  arrange(desc(number_lines))
+```
+
+## Tokenizing
+
+Cria um base com uma variável como nome do nosso token que delimita todas as palavras do texto. A função automaticamente tira pontuações e converte as palavras p lowercase.
+
+```{r}
+dickens_books %>% 
+  unnest_tokens(word, text)
+```
+## Removendo stop words
+
+```{r}
+stop_words
+dickens_books %>% 
+  unnest_tokens(word, text) %>% 
+  anti_join(stop_words)
+
+```
+
+## Removendo números
+
+```{r}
+dickens_books %>% 
+  unnest_tokens(word, text) %>% 
+  anti_join(stop_words) %>% 
+  filter(str_detect(word, "//d+", negate = T)) # O negate filter out o padrão, tirando ele da amostra.
+```
+
+## Stemming
+
+Processo de redução de palavras à sua base, ou desa, à sua derivação.
+
+```{r}
+dickens_books_preprocessed <- dickens_books %>% 
+  unnest_tokens(word, text) %>% 
+  anti_join(stop_words) %>% 
+  filter(str_detect(word, "//d+", negate = T)) %>% 
+  mutate(word = wordStem(word))
+```
+
+## Calculating word counts
+
+A função abaixo conta cada token(palavra) para cada livro.
+
+```{r}
+dickens_books_preprocessed %>% 
+  count(title, word) %>% 
+  bind_tf_idf()
+
+```
+
+## calculando TF-IDF
+
+A variável permite utilizar o resultado do count para calcular term frequency(tf) e o inverse document frequecy(idf) para casa token.
+
+```{r}
+dickens_books_tfidf <- dickens_books_preprocessed %>% 
+    count(title, word) %>% 
+    bind_tf_idf(word, title, n)
+```
+
+# Encontrando as palavras mais importantes em cada documento. slice_max() permite selecionar as linhas com o maior valor de uma variável.
+```{r}
+dickens_books_tfidf %>% 
+  group_by(title) %>% 
+  slice_max(tf_idf, n = 5)
+```
+
+
+## Lematization
+
+Outra forma de criar tokens através da lematização
+
+```{r}
+dl <- udpipe_download_model("english")
+english_model <- udpipe_load_model(dl$file_model)
+
+text <- dickens_books %>% 
+  select(doc_id = title, text)
+x <- udpipe(text, english_model, parallel.cores = 12L)
+```
+
+Essa função cria uma base cheia de variáveis, uma delas com o Lemma, que é a versão da spalavras como aparecem no dicionário, reduzindo plurais, por exemplo.
+
+## udpipe tem parts of speech, indicando classes de palavras como símbolos, pontuações, verbos, números, adjetivos, pronomes etc. São as UPOS. É possível excluir essas categorias do arquivos quando são classes desnecessárias.
+
+```{r}
+x %>% 
+  count(upos) %>% 
+  arrange(desc(n))
+
+dickens_preprocessed_lemmas %>% 
+  filter(!upos %in% c("PUNT", "SYM", "X", "NUM")) %>% # Retirando da amostra classes de pontuação, símbolos, outros e números
+  mutate(lemma = str_to_lower(lemma)) %>%  # Coloando lemma em minusculo
+  anti_join(stop_words, by = c("lemma" = "word"))  # Precisa especificar com o by porque o nome das variáveis é diferente
+
+```
+
+## Calculando tf-idf com lemmas
+
+```{r}
+dickens_preprocesses_lemmas %>% 
+  count(doc_id, lemma) %>% 
+bind_tf_idf(lemma, doc_id, n)
+
+dickens_preprocesses_lemmas %>% 
+  group_by(doc_id) %>% 
+  slice_max(tf_idf, n = 5)
+```
+
+
+## Visualizando tf-idf
+
+```{r}
+dickens_preprocesses_lemmas %>% 
+  group_by(doc_id) %>% 
+  slice_max(tf_idf, n = 5)
+  ggplot() +
+    geom_col(aes(
+      x = lemma,
+      y = tf_idf,
+      fill = lemma
+    )) +
+    facet_wrap(vars(doc_id), scales = "free") +   # por livro, retirando os zeros dos livros que no possuem certos lemmas
+    coord_flip() + # muda x e y
+    theme(legend.position = none) # tira legenda do fill
+    
+```
+
+# Supervised Machine Learning
+
+```{r}
+twist_tale <- gutenberg_metadata %>% 
+  filter(title %in% c("A Tale of Two Cities", "Oliver Twist"),
+         has_text == T,
+         language == "en") %>% 
+  pull(gutenberg_id) %>% 
+  gutenberg_download(meta_fields = "title", mirror = "http://mirror.csclub.uwaterloo.ca/gutenberg/")
+
+twist_tale <- twist_tale %>% 
+  filter(text != "")
+```
+## Criando variáveis para determinar se o livro é um ou outro.
+
+```{r}
+twist_tale <- twist_tale %>% 
+  mutate(
+    is_two_cities = case_when(
+      title == "A Tale of Two Cities" ~ 1L,
+      title == "Oliver Twist" ~ 0L
+    ),
+    line_id = row_number() # Número de index para cada linha
+    )
+
+twist_tale %>% 
+  count(title)
+```
+
+
+## Preparando o dataset:
+
+lemmatize, convertendo lemmas para lowercase, excluir stopwords e excluir classes de palavras
+
+```{r}
+dl <- udpipe_download_model("english")
+english_model <- udpipe_load_model(dl$file_model)
+
+text <- twist_tale %>% 
+  select(doc_id = line_id, text)
+  
+
+twist_tale_preprocessed <- udpipe(text, english_model, parallel.cores = 5L)
+
+twist_tale_preprocessed <- twist_tale_preprocessed %>% 
+  mutate(lemma = str_to_lower(lemma)) %>% 
+  anti_join(stop_words, by = c("lemma" = "word")) %>% 
+  filter(!upos %in% c("PUNCT", "SYM", "X", "NUM"))
+```
+
+
+## Criando um train test split
+
+A função vai dividir a base em 75% training set e 25% testing set.
+
+```{r}
+set.seed(1234L)
+twist_tale_split <- initial_split(twist_tale)
+
+twist_tale_training <- training(twist_tale_split)
+twist_tale_testing <- testing(twist_tale_split)
+```
+
+
+## Criando um document-term matrix usando os dados de training
+
+```{r}
+sparse_train_data <- twist_tale_preprocessed %>%
+  mutate(doc_id = as.integer(doc_id)) %>% 
+  anti_join(twist_tale_testing, by = c("doc_id" = "line_id")) %>% # Excluindo os elementos de teste da base
+  count(doc_id, lemma) %>% 
+  cast_sparse(doc_id, lemma, n) # transformando a base com doc_id como linhas, lemma como colunas e n como valores, criando a matriz de document_term.
+```
+
+
+## Salvando a variável de outcome que se deseja predizer
+
+```{r}
+y <- twist_tale_training %>% 
+  filter(line_id %in% rownames(sparse_train_data)) %>% 
+  pull(is_two_cities)
+```
+
+
+## Calculando uma regularized logistic regressions
+
+```{r}
+model <- cv.glmnet(sparse_train_data, y, family = "binomial", keep = T)
+```
+
+
+# Extraindo coeficiente do modelo com o maior valor de lambda com erro dentro do erro padrão mínimo igual a 1.
+
+```{r}
+coefficients <- model$glmnet.fit %>%
+  tidy() %>% 
+  filter(lambda == model$lambda.1se)
+```
+
+
+## Explorando as palavras mais preditivas do modelo. Osvalores estão em "estimate". Valores positivos significam que se os lemmas forem da linha da varirável "text", essa linha tem uma chance grande de ser de "Tale of Two Cities"; se for negativo, a chance é de ser de "Oliver twist".
+
+# Extraindo as 5 palavras mais preditivas.
+
+```{r}
+coefficients %>% 
+  group_by(estimate > 0) %>% 
+  slice_max(abs(estimate), n = 5) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(x = fct_reorder(term, estimate), y = estimate, fill = estimate > 0)) +
+  coord_flip()
+```
+
+
+## Avaliando o modelo de regressão logística
+
+O objetivo é computar a probabilidade para cada linha da base de teste para cada livro.
+
+```{r}
+intercept <- coefficients %>% 
+  filter(term =="(Intercept)") %>% 
+  pull(estimate) 
+
+classification <- twist_tale_preprocessed %>%
+  mutate(doc_id = as.integer(doc_id)) %>% 
+  anti_join(twist_tale_training, by = c("doc_id" = "line_id")) %>% 
+  inner_join(coefficients, by = c("lemma" = "term")) %>% 
+  group_by(doc_id) %>% 
+  summarize(score = sum(estimate)) %>% 
+  mutate(probability = plogis(intercept + score))
+
+classifications_with_two_tales <- left_join(
+  classifications,
+  select(twist_tale, line_id, is_two, cities),
+  by = c("doc_id" = "line_id")
+) %>% 
+  mutate(is_two_cities = factor(is_two_cities, c(0,1)))
+  
+```
+
+## ROC curve
+
+
+```{r}
+classification_with_two_tales %>%
+  roc_curve(is_two_cities, probability, event_level = "second") %>% 
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_abline(
+    lty = 2, alpha = 0,5
+  )
+```
+ 
+
+# Calculando a área abaixo da curva
+
+```{r}
+classification_with_two_tales %>%
+  roc_auc(is_two_cities, probability, event_level = "second")
+```
+
+
+# Matriz de confusão
+
+```{r}
+classification_with_two_tales %>%
+  mutate(prediction = case_when(
+    probability > 0.5 ~ 1, # Tale fo 2 cities
+    probability <= 0.5 ~ 0 # Oliver Twist
+  ),
+  prediction = factor(prediction, c(0,1))) %>% 
+  conf_mat(is_two_cities, prediction)
+
+```
+
