@@ -1,0 +1,82 @@
+---
+title: "Semana 4 - unsupervised machine learning"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Carregando Project Gutenberg data
+
+```{r}
+install.packages("tidytext")
+install.packages("SnowballC")
+install.packages("udpipe")
+install.packages("gutenbergr")
+install.packages("stm")
+install.packages("preText") # Não ta disponivel pra minha versão de R
+install.packages("quanteda")
+
+library(tidyverse)
+library(tidytext)
+library(SnowballC)
+library(udpipe)
+library(gutenbergr)
+library(stm)
+library(preText)
+library(quanteda)
+```
+
+```{r}
+autobiography_download <- gutenberg_metadata %>% 
+  filter(
+  str_detect(title, "[Aa]utobiogr"),
+  language == "en",
+  str_detect(rights, "Public domain in the USA"),
+  has_text
+) %>% 
+  pull(gutenberg_id) %>% 
+  gutenberg_download(meta_fields = "title", mirror = "http://mirror.csclub.uwaterloo.ca/gutenberg/")
+```
+
+
+# Preparando os dados com preText
+
+```{r}
+#tranformando cada livro em um documento distinto
+
+autobiography_strings <- map_chr(unique(autobiography_download$gutenberg_id), ~autobiography_download %>% 
+                                   filter(gutenberg_id == .x) %>% 
+  pull(text) %>% 
+  paste(collapse = "") 
+)
+factorial_preprocessing()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
